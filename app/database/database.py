@@ -1,14 +1,30 @@
-from pymongo import MongoClient
-from dotenv import load_dotenv
 import os
+
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database.models import Base
 
 load_dotenv()
 
-MONGO_URL = os.getenv("MONGO_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set. Add it to .env")
 
-client = MongoClient(MONGO_URL)
-db = client["kec_clubs"]
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def init_db() -> None:
+    Base.metadata.create_all(bind=engine)
+
 
 def get_db():
-    return db
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 

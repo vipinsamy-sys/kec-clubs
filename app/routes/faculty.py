@@ -1,290 +1,301 @@
-from fastapi import APIRouter, HTTPException
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
 from app.database.database import get_db
-from app.models.faculty import faculty_loginData, PromotionData, RemoveAdminData
+from app.database.models import (
+    Club,
+    ClubStudentCoordinator,
+    Event,
+    EventRegistration,
+    Faculty,
+    User,
+)
+from app.models.faculty import PromotionData, RemoveAdminData, faculty_loginData
 
 
 router = APIRouter()
-db = get_db()
+
+
+def _event_status(event_dt: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    try:
+        return "upcoming" if event_dt >= now else "past"
+    except TypeError:
+        naive_now = datetime.now()
+        return "upcoming" if event_dt >= naive_now else "past"
+
+
+def _serialize_event(event: Event, registrations_count: int) -> dict:
+    event_dt = event.event_date
+    return {
+        "_id": str(event.id),
+        "event_id": str(event.id),
+        "title": event.title,
+        "description": event.description,
+        "venue": event.venue,
+        "date": event_dt.date().isoformat() if event_dt else None,
+        "time": event_dt.time().isoformat(timespec="minutes") if event_dt else None,
+        "status": _event_status(event_dt) if event_dt else "upcoming",
+        "current_participants": registrations_count,
+        "registered_users": [],
+        "max_participants": None,
+        "points": 0,
+        "club": [str(event.club_id)] if event.club_id else [],
+    }
+
 
 @router.post("/faculty-login")
-def login_faculty(faculty:  faculty_loginData):
-    fac_collection = db['faculty']
-    db_faculty = fac_collection.find_one({"email": faculty.email})
-
+def login_faculty(faculty: faculty_loginData, response: Response, db: Session = Depends(get_db)):
+    db_faculty = db.query(Faculty).filter(Faculty.email == faculty.email).first()
     if not db_faculty:
         raise HTTPException(status_code=400, detail="User not found")
 
-    # Compare password
-    if db_faculty["password"] != faculty.password:
+    if db_faculty.password != faculty.password:
         raise HTTPException(status_code=400, detail="Invalid password")
-    
+
+    response.set_cookie(key="faculty_id", value=str(db_faculty.id), httponly=True, samesite="lax")
     return {
         "message": "logged in successfully",
-        "faculty": {
-            "name": db_faculty["name"],
-            "email": db_faculty["email"],
-            "role": "faculty"
-        }
+        "faculty": {"name": db_faculty.name, "email": db_faculty.email, "role": "faculty"},
     }
-    
-@router.get("/all_events")
-def get_all_events():
-    
-    events_collection = db["events"]
-    all_events = list(events_collection.find({}))
-    # Convert ObjectId to string for JSON serialization
-    for event in all_events:
-        event["_id"] = str(event["_id"])
 
-    return {
-        "count": len(all_events),
-        "events": all_events
-    }
+
+@router.get("/all_events")
+def get_all_events(db: Session = Depends(get_db)):
+    rows = (
+        db.query(Event, func.count(EventRegistration.id))
+        .outerjoin(EventRegistration, EventRegistration.event_id == Event.id)
+        .group_by(Event.id)
+        .all()
+    )
+    events = [_serialize_event(event, int(count)) for event, count in rows]
+    return {"count": len(events), "events": events}
+
 
 @router.get("/events-dashboard")
-def get_upcoming_events():
-    events_collection = db["events"]
-    upcoming_events = list(events_collection.find({"status": "upcoming"}))
-    # Convert ObjectId to string for JSON serialization
-    for event in upcoming_events:
-        event["_id"] = str(event["_id"])
+def get_upcoming_events(db: Session = Depends(get_db)):
+    rows = (
+        db.query(Event, func.count(EventRegistration.id))
+        .outerjoin(EventRegistration, EventRegistration.event_id == Event.id)
+        .group_by(Event.id)
+        .all()
+    )
+    events = [_serialize_event(event, int(count)) for event, count in rows]
+    upcoming = [e for e in events if e.get("status") == "upcoming"]
+    return {"count": len(upcoming), "events": upcoming}
 
-    return {
-        "count": len(upcoming_events),
-        "events": upcoming_events
-    }
+
 @router.get("/events-past")
-def get_past_events():
-    events_collection = db["events"]
-    past_events = list(events_collection.find({"status": "past"}))
-    # Convert ObjectId to string for JSON serialization
-    for event in past_events:
-        event["_id"] = str(event["_id"])
+def get_past_events(db: Session = Depends(get_db)):
+    rows = (
+        db.query(Event, func.count(EventRegistration.id))
+        .outerjoin(EventRegistration, EventRegistration.event_id == Event.id)
+        .group_by(Event.id)
+        .all()
+    )
+    events = [_serialize_event(event, int(count)) for event, count in rows]
+    past = [e for e in events if e.get("status") == "past"]
+    return {"count": len(past), "events": past}
 
-    return {
-        "count": len(past_events),
-        "events": past_events
-    }
 
 @router.get("/event_participants")
-def get_event_participants(event_id: str):
-    events_collection = db["events"]
-    users_collection = db["users"]
+@router.get("/event-participants")
+def get_event_participants_list(event_id: str, db: Session = Depends(get_db)):
+    try:
+        event_uuid = uuid.UUID(event_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid event_id")
 
-    event = events_collection.find_one({"event_id": event_id}, {"_id": 0})
-
+    event = db.query(Event).filter(Event.id == event_uuid).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    registered_users = event.get("registered_users", [])
+    participants = (
+        db.query(User)
+        .join(EventRegistration, EventRegistration.student_id == User.id)
+        .filter(EventRegistration.event_id == event_uuid)
+        .all()
+    )
 
-    participants = list(events_collection.find(
-        {"email": {"$in": registered_users}},
-        {"_id": 0, "password": 0} 
-    ))
-
+    payload = [
+        {
+            "name": p.name,
+            "email": p.email,
+            "user_roll": p.register_number,
+            "roll_number": p.register_number,
+            "department": p.department,
+            "year": None,
+            "club": None,
+        }
+        for p in participants
+    ]
     return {
         "event_id": event_id,
-        "count": len(participants),
-        "participants": participants
+        "event_title": event.title,
+        "count": len(payload),
+        "participants": payload,
     }
-    
+
 
 @router.get("/filter-participants")
 def filter_participants(
-    club: str = None,
-    department: str = None,
-    year: str = None,
-    month: int = None,
-    week: int = None
+    club: str | None = None,
+    department: str | None = None,
+    year: str | None = None,
+    month: int | None = None,
+    week: int | None = None,
+    db: Session = Depends(get_db),
 ):
-    """Filter participants by club, department, year, month, and week"""
-    users_collection = db["users"]
-    query = {}
-
-    if club:
-        query["club"] = club
+    query = db.query(User)
     if department:
-        query["department"] = department
-    if year:
-        try:
-            query["year"] = int(year)
-        except:
-            pass
-    
-    users = list(users_collection.find(query, {"_id": 0, "password": 0}))
-    return {
-        "count": len(users),
-        "students": users
-    }
+        query = query.filter(User.department == department)
+    users = query.all()
+    students = [
+        {
+            "name": u.name,
+            "email": u.email,
+            "user_roll": u.register_number,
+            "roll_number": u.register_number,
+            "department": u.department,
+            "year": None,
+            "club": None,
+        }
+        for u in users
+    ]
+    return {"count": len(students), "students": students}
+
 
 @router.get("/departments")
-def get_departments():
-    """Get all unique departments from users collection"""
-    users_collection = db["users"]
-    departments = users_collection.distinct("department")
-    return {
-        "departments": sorted([d for d in departments if d])
-    }
+def get_departments(db: Session = Depends(get_db)):
+    departments = [row[0] for row in db.query(User.department).distinct().all()]
+    return {"departments": sorted([d for d in departments if d])}
+
 
 @router.get("/get-students")
-def get_all_students():
-    """Get all students with their participation details"""
-    users_collection = db["users"]
-    students = list(users_collection.find({}, {"_id": 1, "name": 1, "email": 1, "studentId": 1, "department": 1, "year": 1, "club": 1}))
-    
-    # Convert ObjectId to string
-    for student in students:
-        student["_id"] = str(student["_id"])
-    
-    return students
+def get_all_students(db: Session = Depends(get_db)):
+    students = db.query(User).order_by(User.name.asc()).all()
+    return [
+        {
+            "_id": str(s.id),
+            "id": str(s.id),
+            "name": s.name,
+            "email": s.email,
+            "studentId": s.register_number,
+            "department": s.department,
+            "year": None,
+            "club": None,
+        }
+        for s in students
+    ]
 
-@router.get("/event-participants")
-def get_event_participants_list(event_id: str):
-    """Get all participants for a specific event"""
-    from bson.objectid import ObjectId
-    events_collection = db["events"]
-    users_collection = db["users"]
-
-    # Try finding by _id first, then by event_id
-    try:
-        event = events_collection.find_one({"_id": ObjectId(event_id)}) or \
-                events_collection.find_one({"event_id": event_id})
-    except:
-        event = events_collection.find_one({"event_id": event_id})
-
-    if not event:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    registered_users = event.get("registered_users", [])
-    
-    # Get user details for registered users
-    participants = list(users_collection.find(
-    {"email": {"$in": registered_users}},
-    {"_id": 0, "password": 0}
-))
-
-
-    return {
-        "event_id": event_id,
-        "event_title": event.get("title", "Unknown"),
-        "count": len(participants),
-        "participants": participants
-    }
 
 @router.post("/promote-admin")
-def promote_student_to_admin(promotion_data: PromotionData):
-    from bson.objectid import ObjectId
-    
-    admin_collection = db["admin"]
-    users_collection = db["users"]
-    
-    student_id = promotion_data.studentId
-    club_id = promotion_data.clubId
+def promote_student_to_admin(
+    promotion_data: PromotionData,
+    db: Session = Depends(get_db),
+    faculty_id: str | None = Cookie(default=None),
+):
+    if not faculty_id:
+        raise HTTPException(status_code=401, detail="Faculty not logged in")
 
-    if not student_id or not club_id:
-        raise HTTPException(status_code=400, detail="Missing required fields")
+    try:
+        faculty_uuid = uuid.UUID(faculty_id)
+        student_uuid = uuid.UUID(promotion_data.studentId)
+        club_uuid = uuid.UUID(promotion_data.clubId)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IDs")
 
-    # Ensure student exists
-    student = users_collection.find_one({"_id": ObjectId(student_id)})
+    student = db.query(User).filter(User.id == student_uuid).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    # Prevent duplicate admin
-    if admin_collection.find_one({"studentId": student_id, "clubId": club_id}):
+    club = db.query(Club).filter(Club.id == club_uuid).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club not found")
+
+    coordinator = ClubStudentCoordinator(
+        student_id=student_uuid,
+        club_id=club_uuid,
+        assigned_by=faculty_uuid,
+    )
+    db.add(coordinator)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=400, detail="Already admin for this club")
 
-    # Insert admin record
-    admin_collection.insert_one({
-        "studentId": student_id,
-        "email": student.get("email"),
-        "name": student.get("name"),
-        "clubId": club_id,
-        "clubName": promotion_data.clubName,
-        "role": "admin",
-        "status": "active"
-    })
+    return {"message": "Student promoted to admin", "is_admin": True}
 
-    # THIS IS THE REAL AUTH FLAG
-    users_collection.update_one(
-        {"_id": ObjectId(student_id)},
-        {"$set": {"is_admin": True}}
-    )
-
-    return {
-        "message": "Student promoted to admin",
-        "is_admin": True
-    }
 
 @router.post("/remove-admin")
-def remove_admin(admin_data: RemoveAdminData):
-    from bson.objectid import ObjectId
+def remove_admin(
+    admin_data: RemoveAdminData,
+    db: Session = Depends(get_db),
+):
+    try:
+        student_or_coord_uuid = uuid.UUID(admin_data.studentId)
+        club_uuid = uuid.UUID(admin_data.clubId)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IDs")
 
-    admin_collection = db["admin"]
-    users_collection = db["users"]
-
-    student_id = admin_data.studentId
-    club_id = admin_data.clubId
-
-    if not student_id or not club_id:
-        raise HTTPException(status_code=400, detail="Missing required fields")
-
-    # Remove admin record
-    result = admin_collection.delete_one({
-        "studentId": student_id,
-        "clubId": club_id
-    })
-
-    if result.deleted_count == 0:
+    # Frontend sometimes passes admin._id (coordinator row id) instead of studentId.
+    row = (
+        db.query(ClubStudentCoordinator)
+        .filter(
+            ClubStudentCoordinator.student_id == student_or_coord_uuid,
+            ClubStudentCoordinator.club_id == club_uuid,
+        )
+        .first()
+    )
+    if not row:
+        row = (
+            db.query(ClubStudentCoordinator)
+            .filter(
+                ClubStudentCoordinator.id == student_or_coord_uuid,
+                ClubStudentCoordinator.club_id == club_uuid,
+            )
+            .first()
+        )
+    if not row:
         raise HTTPException(status_code=404, detail="Admin record not found")
 
-    #  VERY IMPORTANT
-    users_collection.update_one(
-        {"_id": ObjectId(student_id)},
-        {"$set": {"is_admin": False}}
+    removed_student_id = row.student_id
+    db.delete(row)
+    db.commit()
+
+    still_admin = (
+        db.query(ClubStudentCoordinator)
+        .filter(ClubStudentCoordinator.student_id == removed_student_id)
+        .first()
+        is not None
     )
-
-    return {
-        "message": "Admin removed successfully",
-        "is_admin": False
-    }
-
-
+    return {"message": "Admin removed successfully", "is_admin": bool(still_admin)}
 
 
 @router.get("/get-admins")
-def get_all_admins():
-    """Get all current admins"""
-    admin_collection = db["admin"]
-    admins = list(admin_collection.find({}, {"_id": 1, "studentId": 1, "name": 1, "email": 1, "clubId": 1, "clubName": 1, "role": 1, "status": 1}))
-    
-    # Convert ObjectId to string
-    for admin in admins:
-        admin["_id"] = str(admin["_id"])
-    
-    return admins
-
-@router.post("/remove-admin")
-def remove_admin(admin_data: RemoveAdminData):
-    """Remove admin privileges from a student"""
-    from bson.objectid import ObjectId
-    
-    admin_collection = db["admin"]
-    
-    student_id = admin_data.studentId
-    club_id = admin_data.clubId
-    
-    if not all([student_id, club_id]):
-        raise HTTPException(status_code=400, detail="Missing required fields")
-    
-    result = admin_collection.delete_one({
-        "studentId": student_id,
-        "clubId": club_id
-    })
-    
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Admin record not found")
-    
-    return {
-        "message": "Admin privileges removed successfully"
-    }
+def get_all_admins(db: Session = Depends(get_db)):
+    rows = (
+        db.query(ClubStudentCoordinator, User, Club)
+        .join(User, User.id == ClubStudentCoordinator.student_id)
+        .join(Club, Club.id == ClubStudentCoordinator.club_id)
+        .all()
+    )
+    return [
+        {
+            "_id": str(coord.id),
+            "studentId": str(student.id),
+            "name": student.name,
+            "email": student.email,
+            "clubId": str(club.id),
+            "clubName": club.club_name,
+            "role": "admin",
+            "status": "active",
+        }
+        for coord, student, club in rows
+    ]

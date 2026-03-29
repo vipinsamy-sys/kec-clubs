@@ -1,33 +1,35 @@
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
 from app.database.database import get_db
-import json
-from bson import ObjectId
+from app.database.models import Club
 
 
 router = APIRouter()
-db = get_db()
 
-class ObjectIdEncoder(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, ObjectId):
-            return str(o)
-        return super().default(o)
+
+def _serialize_club(club: Club) -> dict:
+    return {
+        "_id": str(club.id),
+        "id": str(club.id),
+        "name": club.club_name,
+        "club_name": club.club_name,
+        "description": club.description,
+        "department": club.department,
+    }
+
+
+@router.get("")
+@router.get("/")
+def list_clubs(db: Session = Depends(get_db)):
+    clubs = db.query(Club).order_by(Club.club_name.asc()).all()
+    return [_serialize_club(c) for c in clubs]
 
 @router.get("/all_clubs")
-def get_all_clubs():
-    clubs_collection = db["clubs"]
-    
-    clubs = list(clubs_collection.find({}))
-    
-    # Convert ObjectId to string for JSON serialization
-    for club in clubs:
-        club["_id"] = str(club["_id"])
-    
-    return {
-        "count": len(clubs),
-        "clubs": clubs
-    }
+def get_all_clubs(db: Session = Depends(get_db)):
+    clubs = db.query(Club).order_by(Club.club_name.asc()).all()
+    payload = [_serialize_club(c) for c in clubs]
+    return {"count": len(payload), "clubs": payload}
 
 
 

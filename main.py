@@ -8,8 +8,14 @@ from app.routes.admin import router as admins_router
 from app.routes.faculty import router as faculty_router
 from app.routes.events import router as create_router
 from app.routes.clubs import router as clubs_router
+from app.database.database import init_db
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def _startup() -> None:
+    init_db()
 
 # Add CORS middleware
 app.add_middleware(

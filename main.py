@@ -32,6 +32,9 @@ app.include_router(faculty_router, prefix="/api/faculty")
 app.include_router(create_router, prefix="/api/events")
 app.include_router(clubs_router, prefix="/api/clubs")
 
+# Serve extracted frontend API modules
+app.mount("/scripts", StaticFiles(directory="public/scripts"), name="scripts")
+
 @app.get("/")
 @app.get("/index.html")
 def home():

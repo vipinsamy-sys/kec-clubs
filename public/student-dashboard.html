@@ -1116,9 +1116,8 @@ window.addEventListener('load', function() {
 // Load upcoming events from backend
 function loadUpcomingEvents() {
   const eventContainer = document.getElementById('upcoming-events');
-  
-  fetch("/api/users/events-dashboard")
-    .then(response => response.json())
+
+  StudentAPI.getUpcomingEvents()
     .then(data => {
       console.log("Upcoming events data:", data);
       displayUpcomingEvents(data.events);
@@ -1171,9 +1170,8 @@ function displayUpcomingEvents(events) {
 // Load all events from backend
 function loadAllEvents() {
   const eventContainer = document.getElementById('all-events');
-  
-  fetch("/api/users/all_events")
-    .then(response => response.json())
+
+  StudentAPI.getAllEvents()
     .then(data => {
       console.log("All events data:", data);
       displayAllEvents(data.events);
@@ -1233,9 +1231,8 @@ function displayAllEvents(events) {
 // Load past/registered events from backend
 function loadPastEvents() {
   const eventContainer = document.getElementById('my-events');
-  
-  fetch("/api/users/events-past")
-    .then(response => response.json())
+
+  StudentAPI.getPastEvents()
     .then(data => {
       console.log("Past events data:", data);
       displayPastEvents(data.events);
@@ -1320,29 +1317,12 @@ async function registerForEvent(eventId) {
     console.log('Registering user:', user.user_id, 'for event:', eventId);
     
     // Make the registration request
-    const response = await fetch('/api/users/register-event', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        user_id: user.user_id,
-        event_id: eventId
-      })
-    });
-    
-    // Parse response
-    let data;
-    try {
-      data = await response.json();
-    } catch (e) {
-      console.error('Failed to parse response:', e);
-      alert('Server error. Please try again.');
-      return;
-    }
-    
+    const result = await StudentAPI.registerForEvent(user.user_id, eventId);
+    const responseOk = !!result.ok;
+    const data = result.data;
+
     // Handle response
-    if (response.ok) {
+    if (responseOk) {
       alert('Registration successful! You have registered for this event.');
       // Reload events after successful registration
       setTimeout(() => {
@@ -1374,6 +1354,8 @@ document.addEventListener('click', function(e) {
 });
 
 
+// External API communication layer
 </script>
+<script src="/scripts/student.js"></script>
 </body>
 </html>

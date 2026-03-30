@@ -1303,8 +1303,7 @@ window.addEventListener('load', function() {
 function loadAllEventsForFaculty() {
   const allEventsContainer = document.getElementById('all-events');
   
-  fetch('/api/faculty/all_events')
-    .then(response => response.json())
+  FacultyAPI.getAllEvents()
     .then(data => {
       console.log('All events loaded:', data);
       displayAllEventsForFaculty(data.events);
@@ -1333,8 +1332,7 @@ function loadAllEventsForFaculty() {
 function loadRecentUpcomingEvents() {
   const recentEventsContainer = document.getElementById('recent-events');
   
-  fetch('/api/faculty/events-dashboard')
-    .then(response => response.json())
+  FacultyAPI.getUpcomingEvents()
     .then(data => {
       console.log('Recent upcoming events loaded:', data);
       displayRecentEvents(data.events);
@@ -1400,8 +1398,7 @@ function displayRecentEvents(events) {
 function loadPastEvents() {
   const pastEventsContainer = document.getElementById('past-events');
   
-  fetch('/api/faculty/events-past')
-    .then(response => response.json())
+  FacultyAPI.getPastEvents()
     .then(data => {
       console.log('Past events loaded:', data);
       displayPastEvents(data.events);
@@ -1581,8 +1578,7 @@ function viewEventDetails(eventId) {
 
 // Load clubs from backend and populate dropdown
 function loadClubsForDropdown() {
-  fetch('/api/clubs/all_clubs')
-    .then(response => response.json())
+  FacultyAPI.getAllClubs()
     .then(data => {
       console.log('Clubs loaded:', data);
       populateClubsDropdown(data.clubs);
@@ -1636,24 +1632,17 @@ function handleCreateEvent(e) {
   };
   
   // Send to backend
-  fetch('/api/events/create-event', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(eventData)
-  })
-  .then(response => response.json())
-  .then(data => {
-    console.log('Event created:', data);
-    alert('Event created successfully!');
-    form.reset();
-    showSection(null, 'events');
-  })
-  .catch(error => {
-    console.error('Error creating event:', error);
-    alert('Failed to create event. Please try again.');
-  });
+  FacultyAPI.createEvent(eventData)
+    .then(data => {
+      console.log('Event created:', data);
+      alert('Event created successfully!');
+      form.reset();
+      showSection(null, 'events');
+    })
+    .catch(error => {
+      console.error('Error creating event:', error);
+      alert('Failed to create event. Please try again.');
+    });
 }
 
 
@@ -1673,13 +1662,7 @@ function applyFilters() {
   // Show loading state
   output.innerHTML = `<div class="text-center"><div class="spinner-border text-warning" role="status"><span class="visually-hidden">Loading...</span></div></div>`;
 
-  let url = `/api/faculty/filter-participants?`;
-  if (club) url += `club=${encodeURIComponent(club)}&`;
-  if (department) url += `department=${encodeURIComponent(department)}&`;
-  if (year) url += `year=${encodeURIComponent(year)}&`;
-
-  fetch(url)
-    .then(res => res.json())
+  FacultyAPI.filterParticipants({ club, department, year })
     .then(data => {
       if (data.students && data.students.length > 0) {
         displayFilteredStudents(data.students);
@@ -1847,26 +1830,13 @@ function exportParticipantsCSV() {
 // Load all students for promotion dropdown
 async function loadStudentsForPromotion() {
   try {
-    const response = await fetch('/api/faculty/get-students', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (response.ok) {
-      const students = await response.json();
-      const select = document.getElementById('student-select');
-      if (select) {
-        select.innerHTML = '<option value="">Choose a student...</option>' + 
-          (Array.isArray(students) ? students : []).map(s => 
-            `<option value="${escapeAttr(s._id || s.id)}" data-email="${escapeAttr(s.email || '')}">${escapeHtml(s.name || 'Unknown')} (${escapeHtml(s.studentId || 'N/A')})</option>`
-          ).join('');
-      }
-    } else {
-      const select = document.getElementById('student-select');
-      if (select) select.innerHTML = '<option value="">Error loading students...</option>';
+    const students = await FacultyAPI.getStudents();
+    const select = document.getElementById('student-select');
+    if (select) {
+      select.innerHTML = '<option value="">Choose a student...</option>' + 
+        (Array.isArray(students) ? students : []).map(s => 
+          `<option value="${escapeAttr(s._id || s.id)}" data-email="${escapeAttr(s.email || '')}">${escapeHtml(s.name || 'Unknown')} (${escapeHtml(s.studentId || 'N/A')})</option>`
+        ).join('');
     }
   } catch (error) {
     console.error('Error loading students for promotion:', error);
@@ -1878,26 +1848,13 @@ async function loadStudentsForPromotion() {
 // Load all clubs for promotion dropdown
 async function loadClubsForPromotion() {
   try {
-    const response = await fetch('/api/clubs', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    if (response.ok) {
-      const clubs = await response.json();
-      const select = document.getElementById('club-name');
-      if (select) {
-        select.innerHTML = '<option value="">Choose a club...</option>' + 
-          (Array.isArray(clubs) ? clubs : []).map(c => 
-            `<option value="${escapeAttr(c._id || c.id || '')}">${escapeHtml(c.name || 'Unknown Club')}</option>`
-          ).join('');
-      }
-    } else {
-      const select = document.getElementById('club-name');
-      if (select) select.innerHTML = '<option value="">Error loading clubs...</option>';
+    const clubs = await FacultyAPI.getClubsRoot();
+    const select = document.getElementById('club-name');
+    if (select) {
+      select.innerHTML = '<option value="">Choose a club...</option>' + 
+        (Array.isArray(clubs) ? clubs : []).map(c => 
+          `<option value="${escapeAttr(c._id || c.id || '')}">${escapeHtml(c.name || 'Unknown Club')}</option>`
+        ).join('');
     }
   } catch (err) {
     console.error('Error loading clubs for promotion:', err);
@@ -1939,17 +1896,9 @@ async function promoteStudent() {
       role: 'admin'
     };
 
-    const response = await fetch('/api/faculty/promote-admin', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(promotionData)
-    });
+    const result = await FacultyAPI.promoteAdmin(promotionData);
 
-    if (response.ok) {
-      const result = await response.json();
+    if (result.ok) {
       alert(`${studentName} has been promoted to Admin for ${clubName}!`);
       
       // Reset form
@@ -1965,10 +1914,7 @@ async function promoteStudent() {
       // Reload admins list
       loadAdmins();
     } else {
-      let errorData = {};
-      try {
-        errorData = await response.json();
-      } catch (e) {}
+      const errorData = result.data || {};
       alert(errorData.message || 'Failed to promote student to admin');
     }
   } catch (error) {
@@ -1985,16 +1931,10 @@ async function loadAdmins() {
   container.innerHTML = `<div class="text-center"><div class="spinner-border text-warning" role="status"><span class="visually-hidden">Loading...</span></div></div>`;
 
   try {
-    const response = await fetch('/api/faculty/get-admins', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const result = await FacultyAPI.getAdmins();
 
-    if (response.ok) {
-      const data = await response.json();
+    if (result.ok) {
+      const data = result.data;
       const admins = Array.isArray(data) ? data : (data.admins || []);
 
       if (admins.length === 0) {
@@ -2057,20 +1997,13 @@ async function removeAdmin(studentId, clubId) {
   }
 
   try {
-    const response = await fetch('/api/faculty/remove-admin', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ studentId, clubId })
-    });
+    const result = await FacultyAPI.removeAdmin(studentId, clubId);
 
-    if (response.ok) {
+    if (result.ok) {
       alert('Admin removed successfully!');
       loadAdmins();
     } else {
-      const errorData = await response.json();
+      const errorData = result.data || {};
       alert(errorData.message || 'Failed to remove admin');
     }
   } catch (error) {
@@ -2096,8 +2029,7 @@ function loadEventParticipants() {
     container.innerHTML = `<div class="text-center"><div class="spinner-border text-warning" role="status"><span class="visually-hidden">Loading...</span></div></div>`;
   }
 
-  fetch(`/api/faculty/event-participants?event_id=${encodeURIComponent(eventId)}`)
-    .then(response => response.json())
+  FacultyAPI.getEventParticipants(eventId)
     .then(data => {
       if (container) {
         if (!data.participants || data.participants.length === 0) {
@@ -2159,8 +2091,7 @@ function loadFilterDropdowns() {
 
   // Load clubs for filter dropdown
   if (filterClubSelect) {
-    fetch("/api/clubs/all_clubs")
-      .then(res => res.json())
+    FacultyAPI.getAllClubs()
       .then(data => {
         if (data.clubs && data.clubs.length > 0) {
           data.clubs.forEach(c => {
@@ -2176,8 +2107,7 @@ function loadFilterDropdowns() {
 
   // Load departments for filter dropdown
   if (filterDeptSelect) {
-    fetch("/api/faculty/departments")
-      .then(res => res.json())
+    FacultyAPI.getDepartments()
       .then(data => {
         if (data.departments && data.departments.length > 0) {
           data.departments.forEach(d => {
@@ -2193,8 +2123,7 @@ function loadFilterDropdowns() {
 
   // Load events for participants section
   if (eventSelect) {
-    fetch("/api/faculty/all_events")
-      .then(res => res.json())
+    FacultyAPI.getAllEvents()
       .then(data => {
         if (data.events && data.events.length > 0) {
           data.events.forEach(e => {
@@ -2221,6 +2150,8 @@ function updateWeekOptions() {
 window.addEventListener("load", loadFilterDropdowns);
 
 </script>
+
+<script src="/scripts/faculty.js"></script>
 
 </body>
 </html>

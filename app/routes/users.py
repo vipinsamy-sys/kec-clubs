@@ -208,6 +208,46 @@ def coordinator_events(
     return {"count": len(events), "events": events}
 
 
+@router.get("/coordinator/upcoming-events")
+def coordinator_upcoming_events(
+    user_id: str | None = None,
+    cookie_user_id: str | None = Cookie(default=None, alias="user_id"),
+    db: Session = Depends(get_db),
+):
+    effective_user_id = user_id or cookie_user_id
+    if not effective_user_id:
+        raise HTTPException(status_code=401, detail="Not logged in")
+
+    try:
+        student_uuid = uuid.UUID(effective_user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+
+    club_ids = [
+        row[0]
+        for row in db.query(ClubStudentCoordinator.club_id)
+        .filter(ClubStudentCoordinator.student_id == student_uuid)
+        .distinct()
+        .all()
+        if row and row[0]
+    ]
+
+    if not club_ids:
+        return {"count": 0, "events": []}
+
+    rows = (
+        db.query(Event, func.count(EventRegistrationModel.id))
+        .outerjoin(EventRegistrationModel, EventRegistrationModel.event_id == Event.id)
+        .filter(Event.club_id.in_(club_ids))
+        .group_by(Event.id)
+        .order_by(Event.event_date.asc())
+        .all()
+    )
+    events = [_serialize_event(event, int(count)) for event, count in rows]
+    upcoming = [e for e in events if e.get("status") == "upcoming"]
+    return {"count": len(upcoming), "events": upcoming}
+
+
 @router.get("/coordinator/participants")
 def coordinator_event_participants(
     event_id: str,

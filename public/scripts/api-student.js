@@ -1,8 +1,3 @@
-/* Backend communication layer for student/admin dashboards.
-   Contains ONLY API calls + request/response parsing.
-   UI rendering stays in the HTML files.
-*/
-
 (function () {
   'use strict';
 
@@ -38,6 +33,15 @@
     return await getJson('/api/users/events-past', { method: 'GET' });
   }
 
+  async function getCoordinatorUpcomingEvents() {
+    return await getJson('/api/users/coordinator/upcoming-events', { method: 'GET' });
+  }
+
+  async function getEventParticipants(eventId) {
+    const url = `/api/users/coordinator/participants?event_id=${encodeURIComponent(eventId)}`;
+    return await getJson(url, { method: 'GET' });
+  }
+
   async function registerForEvent(userId, eventId) {
     return await requestJson('/api/users/register-event', {
       method: 'POST',
@@ -49,11 +53,27 @@
     });
   }
 
+  async function filterParticipants(params) {
+    const club = params && params.club ? params.club : null;
+    const department = params && params.department ? params.department : null;
+    const year = params && params.year ? params.year : null;
+
+    let url = '/api/faculty/filter-participants?';
+    if (club) url += `club=${encodeURIComponent(club)}&`;
+    if (department) url += `department=${encodeURIComponent(department)}&`;
+    if (year) url += `year=${encodeURIComponent(year)}&`;
+
+    return await getJson(url, { method: 'GET' });
+  }
+
   window.StudentAPI = {
     requestJson,
     getUpcomingEvents,
     getAllEvents,
     getPastEvents,
-    registerForEvent
+    getCoordinatorUpcomingEvents,
+    getEventParticipants,
+    registerForEvent,
+    filterParticipants,
   };
 })();

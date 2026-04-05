@@ -915,6 +915,9 @@ button[type="submit"]:hover {
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
+    <script src="/scripts/common.js"></script>
+    <script src="/scripts/api-student.js"></script>
+
     <script>
 /***********************************************************************
  * STUDENT DASHBOARD — UI / INTERACTIVITY ONLY VERSION
@@ -1174,6 +1177,10 @@ function loadAllEvents() {
   StudentAPI.getAllEvents()
     .then(data => {
       console.log("All events data:", data);
+      if (window.CommonUI && typeof window.CommonUI.setStat === 'function') {
+        const scope = document.getElementById('dashboard-section') || document;
+        window.CommonUI.setStat(scope, 'total-events', window.CommonUI.countFrom(data, 'events'));
+      }
       displayAllEvents(data.events);
     })
     .catch(error => {
@@ -1235,6 +1242,10 @@ function loadPastEvents() {
   StudentAPI.getPastEvents()
     .then(data => {
       console.log("Past events data:", data);
+      if (window.CommonUI && typeof window.CommonUI.setStat === 'function') {
+        const scope = document.getElementById('dashboard-section') || document;
+        window.CommonUI.setStat(scope, 'registered-events', window.CommonUI.countFrom(data, 'events'));
+      }
       displayPastEvents(data.events);
     })
     .catch(error => {
@@ -1356,6 +1367,6 @@ document.addEventListener('click', function(e) {
 
 // External API communication layer
 </script>
-<script src="/scripts/student.js"></script>
+
 </body>
 </html>

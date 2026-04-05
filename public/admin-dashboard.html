@@ -1094,10 +1094,10 @@ button[type="submit"]:hover {
               <div class="card-body">
                 <div class="d-grid gap-2">
                   
-                  <button class="btn btn-outline-success" onclick="navigateToSection('participants')">
+                  <button class="btn btn-outline-success" onclick="showSection(null,'participants')"
                     <i class="fas fa-users me-2"></i>View Participants
                   </button>
-                  <button class="btn btn-outline-success" onclick="navigateToSection('admin-certificates')">
+                  <button class="btn btn-outline-success" onclick="showSection(null,'admin-certificates')"
                     <i class="fas fa-certificate me-2"></i>Manage Certificates
                   </button>
                 </div>
@@ -1108,13 +1108,11 @@ button[type="submit"]:hover {
       </section>
 
       <!-- EVENTS SECTION -->
-      <section id="admin-events-section" class="content-section" style="display:none;">
+      <section id="events-section" class="content-section" style="display:none;">
         <div class="card">
           <div class="card-header d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>My Events</h5>
-            <button class="btn btn-custom" onclick="navigateToSection('create-event')">
-              <i class="fas fa-plus me-2"></i>Create Event
-            </button>
+            
           </div>
           <div class="card-body">
            
@@ -1273,6 +1271,9 @@ button[type="submit"]:hover {
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
+    <script src="/scripts/common.js"></script>
+    <script src="scripts/api-student.js"></script>
+
     <script>
 /***********************************************************************
  * STUDENT DASHBOARD — UI / INTERACTIVITY ONLY VERSION
@@ -1297,11 +1298,129 @@ function switchPortal(mode) {
     studentSidebar.style.display = "none";
     adminSidebar.style.display = "block";
     showSection(null, "admin-dashboard");
+
+    // Populate admin-only stats safely (scoped to admin section)
+    loadTotalStudentsCount();
+
+    // Load coordinator club upcoming events into "Recent Events"
+    loadRecentEventsForCoordinator();
   }
 
   // Highlight buttons
   document.querySelectorAll(".portal-btn").forEach(btn => btn.classList.remove("active"));
   document.getElementById(mode + "-portal-btn")?.classList.add("active");
+}
+
+
+function loadTotalStudentsCount() {
+  try {
+    if (!window.StudentAPI || typeof window.StudentAPI.filterParticipants !== 'function') return;
+    const adminScope = document.getElementById('admin-dashboard-section');
+    if (!adminScope) return;
+
+    window.StudentAPI.filterParticipants({})
+      .then(data => {
+        const count = window.CommonUI && typeof window.CommonUI.countFrom === 'function'
+          ? window.CommonUI.countFrom(data, 'students')
+          : (data && typeof data.count === 'number' ? data.count : 0);
+
+        if (window.CommonUI && typeof window.CommonUI.setStat === 'function') {
+          window.CommonUI.setStat(adminScope, 'total-students', count);
+        } else {
+          const el = adminScope.querySelector('#total-students');
+          if (el) el.textContent = String(count);
+        }
+      })
+      .catch(err => console.error('Error loading total students:', err));
+  } catch (e) {
+    console.error('Error loading total students:', e);
+  }
+}
+
+
+function loadRecentEventsForCoordinator() {
+  const container = document.getElementById('recent-events');
+  const adminScope = document.getElementById('admin-dashboard-section');
+
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="text-center py-3">
+      <div class="spinner-border text-success" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+  `;
+
+  const loadCoordinatorUpcoming =
+    window.StudentAPI && typeof window.StudentAPI.getCoordinatorUpcomingEvents === 'function'
+      ? () => window.StudentAPI.getCoordinatorUpcomingEvents()
+      : async () => {
+          const response = await fetch('/api/users/coordinator/upcoming-events', {
+            method: 'GET',
+            credentials: 'include',
+          });
+          let data = {};
+          try {
+            data = await response.json();
+          } catch (_) {
+            data = {};
+          }
+          if (!response.ok) {
+            const err = new Error(data.detail || data.message || `Request failed (${response.status})`);
+            err.status = response.status;
+            throw err;
+          }
+          return data;
+        };
+
+  loadCoordinatorUpcoming()
+    .then(data => {
+      const events = (data && Array.isArray(data.events)) ? data.events : [];
+
+      if (window.CommonUI && typeof window.CommonUI.setEventSelectOptions === 'function') {
+        window.CommonUI.setEventSelectOptions(events, { eventSelectId: 'event-select' });
+      }
+
+      if (window.CommonUI && typeof window.CommonUI.setStat === 'function') {
+        window.CommonUI.setStat(adminScope, 'upcoming-events', events.length);
+      }
+
+      if (!events.length) {
+        container.innerHTML = '<p class="text-muted text-center mb-0">No upcoming events for your club</p>';
+        return;
+      }
+
+      let html = '<div class="row g-3">';
+      events.forEach(event => {
+        html += `
+          <div class="col-12 col-md-6">
+            <div class="card h-100 event-card" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);">
+              <div class="card-body">
+                <h6 class="card-title mb-1">${escapeHtml(event.title || event.name || 'Event')}</h6>
+                <div class="small text-muted mb-2">${escapeHtml(event.description || '')}</div>
+                <div class="small">
+                  <div><strong>Date:</strong> ${formatDate(event.date)}</div>
+                  <div><strong>Venue:</strong> ${escapeHtml(event.venue || event.location || 'TBD')}</div>
+                  <div><strong>Registrations:</strong> ${event.current_participants ?? 0}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+
+      container.innerHTML = html;
+    })
+    .catch(err => {
+      console.error('Error loading coordinator recent events:', err);
+      let msg = 'Failed to load recent events';
+      if (err && err.status === 401) msg = 'Please login again to load coordinator events';
+      else if (err && err.status === 403) msg = 'Coordinator access required for recent events';
+      else if (err && err.message) msg = err.message;
+      container.innerHTML = `<p class="text-danger text-center mb-0">${escapeHtml(msg)}</p>`;
+    });
 }
 
 
@@ -1323,8 +1442,6 @@ function checkAdminStatus(user) {
     switchPortal("student");
   }
 }
-
-
 
 
 let currentUser = null;
@@ -1388,7 +1505,12 @@ function showSection(event, section) {
     'my-events': 'My Events',
     'certificates': 'Certificates',
     'leaderboard': 'Leaderboard',
-    'profile': 'Profile'
+    'profile': 'Profile',
+    'admin-dashboard': 'Admin Dashboard',
+    'admin-events': 'Admin Events',
+    'participants': 'Participants',
+    'admin-certificates': 'Admin Certificates',
+    'students': 'All Students'
   };
   const pageTitleEl = document.getElementById('page-title');
   if (pageTitleEl) pageTitleEl.textContent = titles[section] || 'Dashboard';
@@ -1587,6 +1709,13 @@ function loadAllEvents() {
   StudentAPI.getAllEvents()
     .then(data => {
       console.log("All events data:", data);
+      if (window.CommonUI && typeof window.CommonUI.setStat === 'function') {
+        const studentScope = document.getElementById('dashboard-section') || document;
+        const adminScope = document.getElementById('admin-dashboard-section') || document;
+        const total = window.CommonUI.countFrom(data, 'events');
+        window.CommonUI.setStat(studentScope, 'total-events', total);
+        window.CommonUI.setStat(adminScope, 'total-events', total);
+      }
       displayAllEvents(data.events);
     })
     .catch(error => {
@@ -1648,6 +1777,13 @@ function loadPastEvents() {
   StudentAPI.getPastEvents()
     .then(data => {
       console.log("Past events data:", data);
+      if (window.CommonUI && typeof window.CommonUI.setStat === 'function') {
+        const studentScope = document.getElementById('dashboard-section') || document;
+        const adminScope = document.getElementById('admin-dashboard-section') || document;
+        const total = window.CommonUI.countFrom(data, 'events');
+        window.CommonUI.setStat(studentScope, 'registered-events', total);
+        window.CommonUI.setStat(adminScope, 'completed-events', total);
+      }
       displayPastEvents(data.events);
     })
     .catch(error => {
@@ -1760,10 +1896,24 @@ document.addEventListener('click', function(e) {
     }
   }
 });
+//till this admin and students have same js 
 
+
+
+// Load event participants
+function loadEventParticipants() {
+  if (window.CommonUI && typeof window.CommonUI.loadEventParticipants === 'function') {
+    window.CommonUI.loadEventParticipants({ eventSelectId: 'event-select', participantsListId: 'participants-list' });
+  }
+}
+
+function exportParticipantsCSV() {
+  if (window.CommonUI && typeof window.CommonUI.exportParticipantsCSV === 'function') {
+    window.CommonUI.exportParticipantsCSV({ participantsListId: 'participants-list' });
+  }
+}
 
 // External API communication layer
 </script>
-<script src="/scripts/student.js"></script>
 </body>
 </html>

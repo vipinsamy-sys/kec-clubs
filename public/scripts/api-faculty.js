@@ -1,8 +1,3 @@
-/* Backend communication layer for faculty dashboard.
-   Contains ONLY API calls + request/response parsing.
-   UI rendering stays in the HTML file.
-*/
-
 (function () {
   'use strict';
 
@@ -60,11 +55,15 @@
     const club = params && params.club ? params.club : null;
     const department = params && params.department ? params.department : null;
     const year = params && params.year ? params.year : null;
+    const startDate = params && params.startDate ? params.startDate : null;
+    const endDate = params && params.endDate ? params.endDate : null;
 
     let url = '/api/faculty/filter-participants?';
     if (club) url += `club=${encodeURIComponent(club)}&`;
     if (department) url += `department=${encodeURIComponent(department)}&`;
     if (year) url += `year=${encodeURIComponent(year)}&`;
+    if (startDate) url += `start_date=${encodeURIComponent(startDate)}&`;
+    if (endDate) url += `end_date=${encodeURIComponent(endDate)}&`;
 
     return await getJson(url, { method: 'GET' });
   }

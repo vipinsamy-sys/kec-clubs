@@ -809,33 +809,12 @@
                   </select>
                 </div>
                 <div class="col-md-6">
-                  <h6 class="mb-2"><i class="fas fa-calendar me-2"></i>Filter by Month</h6>
-                  <select class="form-control" id="filter-month" onchange="updateWeekOptions(); applyFilters()">
-                    <option value="">Select a month...</option>
-                    <option value="1">January</option>
-                    <option value="2">February</option>
-                    <option value="3">March</option>
-                    <option value="4">April</option>
-                    <option value="5">May</option>
-                    <option value="6">June</option>
-                    <option value="7">July</option>
-                    <option value="8">August</option>
-                    <option value="9">September</option>
-                    <option value="10">October</option>
-                    <option value="11">November</option>
-                    <option value="12">December</option>
-                  </select>
+                  <h6 class="mb-2"><i class="fas fa-calendar-day me-2"></i>From Date</h6>
+                  <input type="date" class="form-control" id="filter-start-date" onchange="applyFilters()">
                 </div>
                 <div class="col-md-6">
-                  <h6 class="mb-2"><i class="fas fa-calendar-week me-2"></i>Filter by Week</h6>
-                  <select class="form-control" id="filter-week" onchange="applyFilters()">
-                    <option value="">Select a week...</option>
-                    <option value="1">1st Week</option>
-                    <option value="2">2nd Week</option>
-                    <option value="3">3rd Week</option>
-                    <option value="4">4th Week</option>
-                    <option value="5">5th Week</option>
-                  </select>
+                  <h6 class="mb-2"><i class="fas fa-calendar-check me-2"></i>To Date</h6>
+                  <input type="date" class="form-control" id="filter-end-date" onchange="applyFilters()">
                 </div>
                 <div class="col-md-6">
                   <button class="btn btn-custom mt-4" onclick="applyFilters()">
@@ -1077,6 +1056,7 @@
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/scripts/common.js"></script>
 
   <script>
 /*   GLOBAL UI STATE   */
@@ -1282,6 +1262,9 @@ window.addEventListener('load', function() {
   
   // Load admins list on page load
   loadAdmins();
+
+  // Load total students count
+  loadStudentsCount();
   
   // Setup modal event listeners
   const promoteModal = document.getElementById('promoteStudentModal');
@@ -1299,10 +1282,12 @@ window.addEventListener('load', function() {
   }
 });
 
+
+
 // Load all events from backend for faculty
 function loadAllEventsForFaculty() {
-  const allEventsContainer = document.getElementById('all-events');
   
+  const allEventsContainer = document.getElementById('all-events');
   FacultyAPI.getAllEvents()
     .then(data => {
       console.log('All events loaded:', data);
@@ -1311,7 +1296,13 @@ function loadAllEventsForFaculty() {
       // Update event stats
       const totalEventsEl = document.getElementById('total-events');
       if (totalEventsEl) totalEventsEl.textContent = data.count;
-      
+
+      const totalAdminEl = document.getElementById('total-admins');
+      const adminsCount = (data && (data.adminsCount ?? data.admins_count));
+      if (totalAdminEl && adminsCount !== undefined && adminsCount !== null) {
+        totalAdminEl.textContent = adminsCount;
+      }
+
       const upcomingCount = (data.events || []).filter(e => e.status === 'upcoming').length;
       const upcomingEl = document.getElementById('upcoming-events');
       if (upcomingEl) upcomingEl.textContent = upcomingCount;
@@ -1325,6 +1316,26 @@ function loadAllEventsForFaculty() {
       if (allEventsContainer) {
         allEventsContainer.innerHTML = '<p class="text-danger text-center">Failed to load events</p>';
       }
+    });
+}
+
+// Load total students count
+function loadStudentsCount() {
+  const totalStudentsEl = document.getElementById('total-students');
+  if (!totalStudentsEl) return;
+
+  FacultyAPI.getStudents()
+    .then(students => {
+      const studentsCount = Array.isArray(students)
+        ? students.length
+        : (students && (students.studentsCount ?? students.students_count));
+
+      if (studentsCount !== undefined && studentsCount !== null) {
+        totalStudentsEl.textContent = studentsCount;
+      }
+    })
+    .catch(error => {
+      console.error('Error loading students count:', error);
     });
 }
 
@@ -1652,23 +1663,26 @@ function applyFilters() {
   const club = document.getElementById("filter-club").value;
   const department = document.getElementById("filter-department").value;
   const year = document.getElementById("filter-year").value;
+  const startDate = document.getElementById("filter-start-date").value;
+  const endDate = document.getElementById("filter-end-date").value;
   const output = document.getElementById("filter-output");
 
-  if (!club && !department && !year) {
+  if (!club && !department && !year && !startDate && !endDate) {
     output.innerHTML = `<p class="text-muted text-center">Please select at least one filter</p>`;
+    return;
+  }
+
+  if (startDate && endDate && startDate > endDate) {
+    output.innerHTML = `<p class="text-danger text-center">Start date cannot be after end date</p>`;
     return;
   }
 
   // Show loading state
   output.innerHTML = `<div class="text-center"><div class="spinner-border text-warning" role="status"><span class="visually-hidden">Loading...</span></div></div>`;
 
-  FacultyAPI.filterParticipants({ club, department, year })
+  FacultyAPI.filterParticipants({ club, department, year, startDate, endDate })
     .then(data => {
-      if (data.students && data.students.length > 0) {
-        displayFilteredStudents(data.students);
-      } else {
-        output.innerHTML = `<p class="text-muted text-center">No students found matching your criteria</p>`;
-      }
+      displayFilteredReport(data);
     })
     .catch(err => {
       console.error("Filter error:", err);
@@ -1676,20 +1690,60 @@ function applyFilters() {
     });
 }
 
-// Display filtered students in table format
-function displayFilteredStudents(students) {
+// Display filtered report: events first, then students list.
+function displayFilteredReport(data) {
   const output = document.getElementById("filter-output");
+  const events = (data && Array.isArray(data.events)) ? data.events : [];
+  const students = (data && Array.isArray(data.students)) ? data.students : [];
 
-  if (!students || students.length === 0) {
-    output.innerHTML = `<p class="text-muted text-center">No students found</p>`;
+  if (events.length === 0 && students.length === 0) {
+    output.innerHTML = `<p class="text-muted text-center">No events or students found for the selected filters</p>`;
     return;
   }
 
   let html = `
+    <h6 class="mb-3"><i class="fas fa-calendar-alt me-2"></i>Filtered Events</h6>
+    <div class="table-responsive mb-4">
+      <table class="table table-dark table-hover table-striped mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Event</th>
+            <th>Date</th>
+            <th>Club</th>
+            <th>Venue</th>
+            <th>Participants</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  if (events.length > 0) {
+    events.forEach(e => {
+      html += `
+        <tr>
+          <td>${escapeHtml(e.title || '-')}</td>
+          <td>${formatDate(e.date)}</td>
+          <td>${escapeHtml(e.club || '-')}</td>
+          <td>${escapeHtml(e.venue || '-')}</td>
+          <td>${e.participants_count ?? 0}</td>
+        </tr>
+      `;
+    });
+  } else {
+    html += `<tr><td colspan="5" class="text-center text-muted">No events found</td></tr>`;
+  }
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+
+    <h6 class="mb-3"><i class="fas fa-users me-2"></i>Student Details</h6>
     <div class="table-responsive">
       <table class="table table-dark table-hover table-striped mb-0">
         <thead class="table-light">
           <tr>
+            <th>Event</th>
             <th>Name</th>
             <th>Email</th>
             <th>Roll Number</th>
@@ -1701,24 +1755,29 @@ function displayFilteredStudents(students) {
         <tbody>
   `;
 
-  students.forEach(s => {
-    html += `
-      <tr>
-        <td>${escapeHtml(s.name || "-")}</td>
-        <td>${escapeHtml(s.email || "-")}</td>
-        <td>${escapeHtml(s.user_roll || s.roll_number || "-")}</td>
-        <td>${escapeHtml(s.department || "-")}</td>
-        <td>${s.year || "-"}</td>
-        <td>${escapeHtml(s.club || "-")}</td>
-      </tr>
-    `;
-  });
+  if (students.length > 0) {
+    students.forEach(s => {
+      html += `
+        <tr>
+          <td>${escapeHtml(s.event_title || '-')}${s.event_date ? ` <span class="text-muted small">(${formatDate(s.event_date)})</span>` : ''}</td>
+          <td>${escapeHtml(s.name || "-")}</td>
+          <td>${escapeHtml(s.email || "-")}</td>
+          <td>${escapeHtml(s.user_roll || s.roll_number || "-")}</td>
+          <td>${escapeHtml(s.department || "-")}</td>
+          <td>${s.year || "-"}</td>
+          <td>${escapeHtml(s.club || "-")}</td>
+        </tr>
+      `;
+    });
+  } else {
+    html += `<tr><td colspan="7" class="text-center text-muted">No students found for the selected filters</td></tr>`;
+  }
 
   html += `
         </tbody>
       </table>
     </div>
-    <div class="mt-2 text-muted small">Total: ${students.length} student(s)</div>
+    <div class="mt-2 text-muted small">Total Events: ${events.length} | Total Students: ${students.length}</div>
   `;
 
   output.innerHTML = html;
@@ -1729,8 +1788,10 @@ function clearFilters() {
   document.getElementById("filter-club").value = "";
   document.getElementById("filter-department").value = "";
   document.getElementById("filter-year").value = "";
-  document.getElementById("filter-month").value = "";
-  document.getElementById("filter-week").value = "";
+  const startInput = document.getElementById("filter-start-date");
+  const endInput = document.getElementById("filter-end-date");
+  if (startInput) startInput.value = "";
+  if (endInput) endInput.value = "";
 
   document.getElementById("filter-output").innerHTML = `
     <p class="text-muted text-center">
@@ -1741,87 +1802,11 @@ function clearFilters() {
 
 // Export filtered students to CSV
 function exportParticipantsCSV() {
-  // Check for table in participants section first, then filters section
-  const participantsContainer = document.getElementById("participants-list");
-  const filterContainer = document.getElementById("filter-output");
-  
-  let table = null;
-  let eventTitle = "participants";
-  
-  // Try to get from participants section
-  if (participantsContainer) {
-    table = participantsContainer.querySelector("table");
-    const titleEl = participantsContainer.querySelector("h6");
-    if (titleEl) {
-      eventTitle = titleEl.textContent.trim().replace(/^Event:\s*/i, '').replace(/[^a-z0-9]/gi, '_');
-    }
-  }
-  
-  // Fallback to filter section
-  if (!table && filterContainer) {
-    table = filterContainer.querySelector("table");
-    if (!table) {
-      const tables = filterContainer.querySelectorAll("table");
-      if (tables.length > 0) {
-        table = tables[0];
-      }
-    }
-  }
-  
-  if (!table) {
-    alert("No participants to export. Please select an event or apply filters first.");
-    return;
-  }
-
-  try {
-    let csv = "";
-    const rows = table.querySelectorAll("tr");
-    
-    if (rows.length === 0) {
-      alert("No data found in table. Please ensure participants are loaded.");
-      return;
-    }
-    
-    rows.forEach(row => {
-      const cells = row.querySelectorAll("td, th");
-      const rowData = Array.from(cells).map(cell => {
-        const text = cell.textContent.trim();
-        // Escape quotes and wrap in quotes
-        return `"${text.replace(/"/g, '""')}"`;  
-      }).join(",");
-      if (rowData.trim()) {
-        csv += rowData + "\n";
-      }
+  if (window.CommonUI && typeof window.CommonUI.exportParticipantsCSV === 'function') {
+    window.CommonUI.exportParticipantsCSV({
+      participantsListId: 'participants-list',
+      filterOutputId: 'filter-output'
     });
-
-    if (!csv.trim()) {
-      alert("No data to export.");
-      return;
-    }
-
-    // Create and download CSV
-    const filename = `${eventTitle}_participants_${new Date().getTime()}.csv`;
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    link.style.visibility = "hidden";
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Cleanup
-    setTimeout(() => {
-      URL.revokeObjectURL(url);
-    }, 100);
-    
-    console.log('CSV exported successfully:', filename);
-  } catch (error) {
-    console.error('Error exporting CSV:', error);
-    alert("Error exporting CSV: " + (error.message || "Unknown error"));
   }
 }
 
@@ -1831,6 +1816,7 @@ function exportParticipantsCSV() {
 async function loadStudentsForPromotion() {
   try {
     const students = await FacultyAPI.getStudents();
+
     const select = document.getElementById('student-select');
     if (select) {
       select.innerHTML = '<option value="">Choose a student...</option>' + 
@@ -1937,6 +1923,9 @@ async function loadAdmins() {
       const data = result.data;
       const admins = Array.isArray(data) ? data : (data.admins || []);
 
+      const totalAdminEl = document.getElementById('total-admins');
+      if (totalAdminEl) totalAdminEl.textContent = admins.length;
+
       if (admins.length === 0) {
         container.innerHTML = `<p class="text-muted text-center">No admins assigned yet</p>`;
         return;
@@ -2014,73 +2003,9 @@ async function removeAdmin(studentId, clubId) {
 
 // Load event participants
 function loadEventParticipants() {
-  const eventSelect = document.getElementById("event-select");
-  const eventId = eventSelect ? eventSelect.value : null;
-  const container = document.getElementById("participants-list");
-  
-  if (!eventId) {
-    if (container) {
-      container.innerHTML = `<p class="text-muted text-center"><i class="fas fa-info-circle me-2"></i>Select an event to view participants</p>`;
-    }
-    return;
+  if (window.CommonUI && typeof window.CommonUI.loadEventParticipants === 'function') {
+    window.CommonUI.loadEventParticipants({ eventSelectId: 'event-select', participantsListId: 'participants-list' });
   }
-
-  if (container) {
-    container.innerHTML = `<div class="text-center"><div class="spinner-border text-warning" role="status"><span class="visually-hidden">Loading...</span></div></div>`;
-  }
-
-  FacultyAPI.getEventParticipants(eventId)
-    .then(data => {
-      if (container) {
-        if (!data.participants || data.participants.length === 0) {
-          container.innerHTML = `<p class="text-muted text-center">No participants for this event</p>`;
-        } else {
-          let html = `
-            <div class="table-responsive">
-              <table class="table table-dark table-hover table-striped mb-0">
-                <thead class="table-light">
-                  <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Roll Number</th>
-                    <th>Department</th>
-                    <th>Year</th>
-                    <th>Club</th>
-                  </tr>
-                </thead>
-                <tbody>
-          `;
-          
-          data.participants.forEach(p => {
-            html += `
-              <tr>
-                <td>${escapeHtml(p.name || "-")}</td>
-                <td>${escapeHtml(p.email || "-")}</td>
-                <td>${escapeHtml(p.user_roll || p.roll_number || "-")}</td>
-                <td>${escapeHtml(p.department || "-")}</td>
-                <td>${p.year || "-"}</td>
-                <td>${escapeHtml(p.club || "-")}</td>
-              </tr>
-            `;
-          });
-          
-          html += `
-                </tbody>
-              </table>
-            </div>
-            <div class="mt-2 text-muted small">Total: ${data.participants.length} participant(s)</div>
-          `;
-          
-          container.innerHTML = html;
-        }
-      }
-    })
-    .catch(error => {
-      console.error("Error loading participants:", error);
-      if (container) {
-        container.innerHTML = `<p class="text-danger text-center">Failed to load participants</p>`;
-      }
-    });
 }
 
 // Load filter dropdowns with data from backend
@@ -2139,19 +2064,14 @@ function loadFilterDropdowns() {
 }
 
 function updateWeekOptions() {
-  // Future implementation for week calculation based on month
-  const monthSelect = document.getElementById("filter-month");
-  const weekSelect = document.getElementById("filter-week");
-  if (monthSelect && weekSelect) {
-    weekSelect.disabled = !monthSelect.value;
-  }
+  // Deprecated after moving to custom date range filter.
 }
 
 window.addEventListener("load", loadFilterDropdowns);
 
 </script>
 
-<script src="/scripts/faculty.js"></script>
+<script src="/scripts/api-faculty.js"></script>
 
 </body>
 </html>

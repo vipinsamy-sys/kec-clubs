@@ -1,18 +1,14 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
 from datetime import date, time
 
+from pydantic import BaseModel, ConfigDict
+
+
 class CreateEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     title: str
-    description: Optional[str] = None
-    club: List[str] = Field(default_factory=list)
-    certificates: List[str] = Field(default_factory=list)
+    description: str | None = None
+    venue: str | None = None
     date: date
     time: time
-    venue: str
-    max_participants: Optional[int] = None
-    current_participants: int = 0
-    status: Literal["upcoming", "past"] = "upcoming"
-    points: Optional[int] = None
-
-
+    club: list[str] | None = None

@@ -1,31 +1,22 @@
-from pydantic import BaseModel,EmailStr, Field
-from typing import Literal
+from pydantic import BaseModel, ConfigDict
+
 
 class faculty_loginData(BaseModel):
-    email : EmailStr
-    password : str
-    
-class faculty_data(BaseModel):
-    name: str
-    email: EmailStr
+    model_config = ConfigDict(extra="ignore")
+
+    email: str
     password: str
-    fac_number : str = Field(..., pattern=r"^[A-Z]{3}\d{3}$")
-    dept : str
+
 
 class PromotionData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     studentId: str
-    email: EmailStr
-    name: str
     clubId: str
-    clubName: str
-    role: str = "admin"
+
 
 class RemoveAdminData(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     studentId: str
     clubId: str
-
-
-
-
-
-

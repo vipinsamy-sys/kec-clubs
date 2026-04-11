@@ -38,9 +38,11 @@
   }
 
   async function getClubsRoot() {
-    const { ok, data } = await requestJson('/api/clubs', { method: 'GET' });
+    const { ok, data } = await requestJson('/api/clubs/all_clubs', { method: 'GET' });
     if (!ok) throw new Error((data && (data.detail || data.message)) || 'Failed to load clubs');
-    return data;
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.clubs)) return data.clubs;
+    return [];
   }
 
   async function createEvent(eventData) {
@@ -55,15 +57,11 @@
     const club = params && params.club ? params.club : null;
     const department = params && params.department ? params.department : null;
     const year = params && params.year ? params.year : null;
-    const startDate = params && params.startDate ? params.startDate : null;
-    const endDate = params && params.endDate ? params.endDate : null;
 
     let url = '/api/faculty/filter-participants?';
     if (club) url += `club=${encodeURIComponent(club)}&`;
     if (department) url += `department=${encodeURIComponent(department)}&`;
     if (year) url += `year=${encodeURIComponent(year)}&`;
-    if (startDate) url += `start_date=${encodeURIComponent(startDate)}&`;
-    if (endDate) url += `end_date=${encodeURIComponent(endDate)}&`;
 
     return await getJson(url, { method: 'GET' });
   }

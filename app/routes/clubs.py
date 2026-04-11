@@ -18,13 +18,6 @@ def _serialize_club(club: Club) -> dict:
         "department": club.department,
     }
 
-
-@router.get("")
-@router.get("/")
-def list_clubs(db: Session = Depends(get_db)):
-    clubs = db.query(Club).order_by(Club.club_name.asc()).all()
-    return [_serialize_club(c) for c in clubs]
-
 @router.get("/all_clubs")
 def get_all_clubs(db: Session = Depends(get_db)):
     clubs = db.query(Club).order_by(Club.club_name.asc()).all()

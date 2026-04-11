@@ -809,12 +809,33 @@
                   </select>
                 </div>
                 <div class="col-md-6">
-                  <h6 class="mb-2"><i class="fas fa-calendar-day me-2"></i>From Date</h6>
-                  <input type="date" class="form-control" id="filter-start-date" onchange="applyFilters()">
+                  <h6 class="mb-2"><i class="fas fa-calendar me-2"></i>Filter by Month</h6>
+                  <select class="form-control" id="filter-month" onchange="updateWeekOptions(); applyFilters()">
+                    <option value="">Select a month...</option>
+                    <option value="1">January</option>
+                    <option value="2">February</option>
+                    <option value="3">March</option>
+                    <option value="4">April</option>
+                    <option value="5">May</option>
+                    <option value="6">June</option>
+                    <option value="7">July</option>
+                    <option value="8">August</option>
+                    <option value="9">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                  </select>
                 </div>
                 <div class="col-md-6">
-                  <h6 class="mb-2"><i class="fas fa-calendar-check me-2"></i>To Date</h6>
-                  <input type="date" class="form-control" id="filter-end-date" onchange="applyFilters()">
+                  <h6 class="mb-2"><i class="fas fa-calendar-week me-2"></i>Filter by Week</h6>
+                  <select class="form-control" id="filter-week" onchange="applyFilters()">
+                    <option value="">Select a week...</option>
+                    <option value="1">1st Week</option>
+                    <option value="2">2nd Week</option>
+                    <option value="3">3rd Week</option>
+                    <option value="4">4th Week</option>
+                    <option value="5">5th Week</option>
+                  </select>
                 </div>
                 <div class="col-md-6">
                   <button class="btn btn-custom mt-4" onclick="applyFilters()">
@@ -1663,26 +1684,23 @@ function applyFilters() {
   const club = document.getElementById("filter-club").value;
   const department = document.getElementById("filter-department").value;
   const year = document.getElementById("filter-year").value;
-  const startDate = document.getElementById("filter-start-date").value;
-  const endDate = document.getElementById("filter-end-date").value;
   const output = document.getElementById("filter-output");
 
-  if (!club && !department && !year && !startDate && !endDate) {
+  if (!club && !department && !year) {
     output.innerHTML = `<p class="text-muted text-center">Please select at least one filter</p>`;
-    return;
-  }
-
-  if (startDate && endDate && startDate > endDate) {
-    output.innerHTML = `<p class="text-danger text-center">Start date cannot be after end date</p>`;
     return;
   }
 
   // Show loading state
   output.innerHTML = `<div class="text-center"><div class="spinner-border text-warning" role="status"><span class="visually-hidden">Loading...</span></div></div>`;
 
-  FacultyAPI.filterParticipants({ club, department, year, startDate, endDate })
+  FacultyAPI.filterParticipants({ club, department, year })
     .then(data => {
-      displayFilteredReport(data);
+      if (data.students && data.students.length > 0) {
+        displayFilteredStudents(data.students);
+      } else {
+        output.innerHTML = `<p class="text-muted text-center">No students found matching your criteria</p>`;
+      }
     })
     .catch(err => {
       console.error("Filter error:", err);
@@ -1690,60 +1708,20 @@ function applyFilters() {
     });
 }
 
-// Display filtered report: events first, then students list.
-function displayFilteredReport(data) {
+// Display filtered students in table format
+function displayFilteredStudents(students) {
   const output = document.getElementById("filter-output");
-  const events = (data && Array.isArray(data.events)) ? data.events : [];
-  const students = (data && Array.isArray(data.students)) ? data.students : [];
 
-  if (events.length === 0 && students.length === 0) {
-    output.innerHTML = `<p class="text-muted text-center">No events or students found for the selected filters</p>`;
+  if (!students || students.length === 0) {
+    output.innerHTML = `<p class="text-muted text-center">No students found</p>`;
     return;
   }
 
   let html = `
-    <h6 class="mb-3"><i class="fas fa-calendar-alt me-2"></i>Filtered Events</h6>
-    <div class="table-responsive mb-4">
-      <table class="table table-dark table-hover table-striped mb-0">
-        <thead class="table-light">
-          <tr>
-            <th>Event</th>
-            <th>Date</th>
-            <th>Club</th>
-            <th>Venue</th>
-            <th>Participants</th>
-          </tr>
-        </thead>
-        <tbody>
-  `;
-
-  if (events.length > 0) {
-    events.forEach(e => {
-      html += `
-        <tr>
-          <td>${escapeHtml(e.title || '-')}</td>
-          <td>${formatDate(e.date)}</td>
-          <td>${escapeHtml(e.club || '-')}</td>
-          <td>${escapeHtml(e.venue || '-')}</td>
-          <td>${e.participants_count ?? 0}</td>
-        </tr>
-      `;
-    });
-  } else {
-    html += `<tr><td colspan="5" class="text-center text-muted">No events found</td></tr>`;
-  }
-
-  html += `
-        </tbody>
-      </table>
-    </div>
-
-    <h6 class="mb-3"><i class="fas fa-users me-2"></i>Student Details</h6>
     <div class="table-responsive">
       <table class="table table-dark table-hover table-striped mb-0">
         <thead class="table-light">
           <tr>
-            <th>Event</th>
             <th>Name</th>
             <th>Email</th>
             <th>Roll Number</th>
@@ -1755,29 +1733,24 @@ function displayFilteredReport(data) {
         <tbody>
   `;
 
-  if (students.length > 0) {
-    students.forEach(s => {
-      html += `
-        <tr>
-          <td>${escapeHtml(s.event_title || '-')}${s.event_date ? ` <span class="text-muted small">(${formatDate(s.event_date)})</span>` : ''}</td>
-          <td>${escapeHtml(s.name || "-")}</td>
-          <td>${escapeHtml(s.email || "-")}</td>
-          <td>${escapeHtml(s.user_roll || s.roll_number || "-")}</td>
-          <td>${escapeHtml(s.department || "-")}</td>
-          <td>${s.year || "-"}</td>
-          <td>${escapeHtml(s.club || "-")}</td>
-        </tr>
-      `;
-    });
-  } else {
-    html += `<tr><td colspan="7" class="text-center text-muted">No students found for the selected filters</td></tr>`;
-  }
+  students.forEach(s => {
+    html += `
+      <tr>
+        <td>${escapeHtml(s.name || "-")}</td>
+        <td>${escapeHtml(s.email || "-")}</td>
+        <td>${escapeHtml(s.user_roll || s.roll_number || "-")}</td>
+        <td>${escapeHtml(s.department || "-")}</td>
+        <td>${s.year || "-"}</td>
+        <td>${escapeHtml(s.club || "-")}</td>
+      </tr>
+    `;
+  });
 
   html += `
         </tbody>
       </table>
     </div>
-    <div class="mt-2 text-muted small">Total Events: ${events.length} | Total Students: ${students.length}</div>
+    <div class="mt-2 text-muted small">Total: ${students.length} student(s)</div>
   `;
 
   output.innerHTML = html;
@@ -1788,10 +1761,8 @@ function clearFilters() {
   document.getElementById("filter-club").value = "";
   document.getElementById("filter-department").value = "";
   document.getElementById("filter-year").value = "";
-  const startInput = document.getElementById("filter-start-date");
-  const endInput = document.getElementById("filter-end-date");
-  if (startInput) startInput.value = "";
-  if (endInput) endInput.value = "";
+  document.getElementById("filter-month").value = "";
+  document.getElementById("filter-week").value = "";
 
   document.getElementById("filter-output").innerHTML = `
     <p class="text-muted text-center">
@@ -1833,19 +1804,55 @@ async function loadStudentsForPromotion() {
 
 // Load all clubs for promotion dropdown
 async function loadClubsForPromotion() {
+  const select = document.getElementById('club-name');
+  if (!select) return;
+
+  select.innerHTML = '<option value="">Loading clubs...</option>';
+
   try {
-    const clubs = await FacultyAPI.getClubsRoot();
-    const select = document.getElementById('club-name');
-    if (select) {
-      select.innerHTML = '<option value="">Choose a club...</option>' + 
-        (Array.isArray(clubs) ? clubs : []).map(c => 
-          `<option value="${escapeAttr(c._id || c.id || '')}">${escapeHtml(c.name || 'Unknown Club')}</option>`
-        ).join('');
+    let clubs = [];
+
+    // Primary path: helper that should already normalize to an array.
+    if (window.FacultyAPI && typeof FacultyAPI.getClubsRoot === 'function') {
+      clubs = await FacultyAPI.getClubsRoot();
     }
+
+    // Fallback for older API helper payloads.
+    if (!Array.isArray(clubs) || clubs.length === 0) {
+      if (window.FacultyAPI && typeof FacultyAPI.getAllClubs === 'function') {
+        const data = await FacultyAPI.getAllClubs();
+        clubs = Array.isArray(data) ? data : (Array.isArray(data?.clubs) ? data.clubs : []);
+      }
+    }
+
+    // Final fallback: direct endpoint call with no-store to avoid stale cache artifacts.
+    if (!Array.isArray(clubs) || clubs.length === 0) {
+      const response = await fetch('/api/clubs/all_clubs', { method: 'GET', cache: 'no-store' });
+      const data = await response.json();
+      clubs = Array.isArray(data) ? data : (Array.isArray(data?.clubs) ? data.clubs : []);
+    }
+
+    if (!Array.isArray(clubs) || clubs.length === 0) {
+      select.innerHTML = '<option value="">No clubs found</option>';
+      return;
+    }
+
+    const deduped = [];
+    const seen = new Set();
+    clubs.forEach(c => {
+      const id = String(c?._id || c?.id || '').trim();
+      const name = String(c?.name || c?.club_name || '').trim();
+      const key = `${id}::${name}`;
+      if (!id || !name || seen.has(key)) return;
+      seen.add(key);
+      deduped.push({ id, name });
+    });
+
+    select.innerHTML = '<option value="">Choose a club...</option>' +
+      deduped.map(c => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.name)}</option>`).join('');
   } catch (err) {
     console.error('Error loading clubs for promotion:', err);
-    const select = document.getElementById('club-name');
-    if (select) select.innerHTML = '<option value="">Error loading clubs...</option>';
+    select.innerHTML = '<option value="">Error loading clubs...</option>';
   }
 }
 
@@ -2064,14 +2071,19 @@ function loadFilterDropdowns() {
 }
 
 function updateWeekOptions() {
-  // Deprecated after moving to custom date range filter.
+  // Future implementation for week calculation based on month
+  const monthSelect = document.getElementById("filter-month");
+  const weekSelect = document.getElementById("filter-week");
+  if (monthSelect && weekSelect) {
+    weekSelect.disabled = !monthSelect.value;
+  }
 }
 
 window.addEventListener("load", loadFilterDropdowns);
 
 </script>
 
-<script src="/scripts/api-faculty.js"></script>
+<script src="/scripts/api-faculty.js?v=20260411"></script>
 
 </body>
 </html>

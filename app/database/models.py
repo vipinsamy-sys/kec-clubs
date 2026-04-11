@@ -44,7 +44,6 @@ class Club(Base):
     club_name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     department: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("faculty.id"), nullable=True)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     events: Mapped[list["Event"]] = relationship(back_populates="club")
